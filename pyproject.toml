@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v8gym"
+version = "0.1.0"
+description = "Dataset and environment for benchmarking AI agents on V8 bug reproduction tasks"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "pyarrow",
+    "google-cloud-storage",
+    "frida",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["v8gym"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"v8gym/data" = "v8gym/data"
