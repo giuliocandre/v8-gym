@@ -161,7 +161,7 @@ def CreateEnv(
     Set up a reproduction environment for the given task.
 
     - Checks out the vulnerable commit in v8_path.
-    - Downloads and installs the matching d8 binary into workspace_path.
+    - Downloads and installs the matching d8 binary into workspace_path/build/.
     - Writes a TASK.md describing the bug.
 
     Returns the path to the installed d8 binary.
@@ -181,8 +181,9 @@ def CreateEnv(
     )
     print(f"[v8gym] Checked out commit {commit} in {v8_path}")
 
-    os.makedirs(workspace_path, exist_ok=True)
-    d8_path = install_d8(commit, dest_dir=workspace_path, variant=build_type, v8_dir=v8_path)
+    build_dir = os.path.join(workspace_path, "build")
+    os.makedirs(build_dir, exist_ok=True)
+    d8_path = install_d8(commit, dest_dir=build_dir, variant=build_type, v8_dir=v8_path)
     print(f"[v8gym] d8 installed at {d8_path}")
 
     task_md = os.path.join(workspace_path, "TASK.md")

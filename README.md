@@ -38,7 +38,7 @@ git clone https://github.com/v8/v8.git ./v8
 Set up a reproduction environment for a task.
 
 - Checks out the vulnerable commit in `v8_path`
-- Downloads the matching pre-built `d8` binary and runtime libraries from GCS into `workspace_path`
+- Downloads the matching pre-built `d8` binary and runtime libraries from GCS into `workspace_path/build/`
 - Writes a `TASK.md` to `workspace_path` describing the bug, expected exit code, and backtrace
 
 Returns the path to the installed `d8` binary.
@@ -47,7 +47,7 @@ Returns the path to the installed `d8` binary.
 import v8gym
 
 d8 = v8gym.CreateEnv(task_id=1, workspace_path="/tmp/task1", v8_path="/v8")
-# d8 == "/tmp/task1/d8"
+# d8 == "/tmp/task1/build/d8"
 # /tmp/task1/TASK.md is written with the bug description
 ```
 
