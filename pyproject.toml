@@ -14,6 +14,9 @@ dependencies = [
     "frida",
 ]
 
+[project.scripts]
+v8gym-verify-task = "v8gym.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["v8gym"]
 

@@ -51,21 +51,18 @@ d8 = v8gym.CreateEnv(task_id=1, workspace_path="/tmp/task1", v8_path="/v8")
 # /tmp/task1/TASK.md is written with the bug description
 ```
 
-### `VerifyTask(task_id, command_line, poc_contents, v8_path="./v8", timeout=60, match_threshold=0.5) → VerifyResult`
+### `VerifyTask(task_id, command_line, timeout=60, match_threshold=0.5) → VerifyResult`
 
-Run a PoC under Frida and check whether it reproduces the expected crash.
+Run a command under Frida and check whether it reproduces the expected crash.
 
-- Writes `poc_contents` to a temporary file
-- Substitutes `{poc}` in `command_line` with the temp file path; if `{poc}` is absent, appends the path as the last argument
-- Spawns the process under Frida with a crash exception handler
-- Compares the captured backtrace against the expected one (frame names, offsets stripped)
+- Spawns `command_line` under Frida with a crash exception handler
+- Compares the captured backtrace against the expected one (exact frame name match including offsets)
 - Returns a `VerifyResult`
 
 ```python
 result = v8gym.VerifyTask(
     task_id=1,
-    command_line="/tmp/task1/d8 --allow-natives-syntax {poc}",
-    poc_contents="// ... exploit JS ...",
+    command_line="/tmp/task1/build/d8 --allow-natives-syntax ./poc.js",
 )
 
 print(result.success)   # True if crashed and backtrace matched
@@ -107,14 +104,13 @@ d8 = v8gym.CreateEnv(task_id, workspace)
 # 2. Read the task description
 task_md = open(f"{workspace}/TASK.md").read()
 
-# 3. Agent generates a PoC (replace with actual agent call)
-poc = agent.generate(task_md)
+# 3. Agent writes poc.js to workspace (replace with actual agent call)
+agent.generate(task_md, output=f"{workspace}/poc.js")
 
 # 4. Score the attempt
 result = v8gym.VerifyTask(
     task_id=task_id,
-    command_line=f"{d8} --allow-natives-syntax {{poc}}",
-    poc_contents=poc,
+    command_line=f"{d8} --allow-natives-syntax {workspace}/poc.js",
 )
 
 print(f"success={result.success}  score={result.score:.2f}")

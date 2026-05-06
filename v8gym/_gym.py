@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import os
-import re
 import shlex
 import subprocess
 import sys
-import tempfile
 import threading
 from dataclasses import dataclass, field
 
@@ -36,17 +34,6 @@ Process.setExceptionHandler(function(details) {
 });
 """
 
-_OFFSET_RE = re.compile(r"\+0x[0-9a-fA-F]+$")
-_RAW_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]+$")
-
-
-def _normalize_name(name: str) -> str | None:
-    """Strip +0x offset; return None for raw addresses."""
-    if _RAW_ADDR_RE.match(name):
-        return None
-    return _OFFSET_RE.sub("", name)
-
-
 def _extract_names(backtrace: dict) -> list[str]:
     names = []
     for key in sorted(backtrace.keys(), key=lambda k: int(k) if str(k).lstrip("-").isdigit() else 0):
@@ -54,11 +41,8 @@ def _extract_names(backtrace: dict) -> list[str]:
         if not entry:
             continue
         name = entry.get("name") if isinstance(entry, dict) else None
-        if not name:
-            continue
-        normalized = _normalize_name(name)
-        if normalized:
-            names.append(normalized)
+        if name:
+            names.append(name)
     return names
 
 
@@ -209,7 +193,7 @@ def _render_task_md(task: dict) -> str:
         "",
         "Run your PoC with:",
         "```",
-        f"./d8 [relevant cli flags] poc.js",
+        f"./build/d8 [relevant cli flags] poc.js",
         "```",
         "",
         "## Expected backtrace",
@@ -231,22 +215,16 @@ def _render_task_md(task: dict) -> str:
 def VerifyTask(
     task_id: int,
     command_line: str,
-    poc_contents: str,
-    v8_path: str = "./v8",
     timeout: int = 60,
     match_threshold: float = 0.5,
 ) -> VerifyResult:
     """
-    Run a PoC against d8 under Frida and check whether it reproduces the expected crash.
+    Run a command under Frida and check whether it reproduces the expected crash.
 
     Args:
         task_id:         Task to verify against.
-        command_line:    Shell command to invoke d8. Use ``{poc}`` as a placeholder
-                         for the PoC file path (e.g. ``"./d8 --allow-natives-syntax {poc}"``).
-                         If ``{poc}`` is absent, the PoC file is appended as the last argument.
-        poc_contents:    JavaScript source for the PoC.
-        v8_path:         Path to the local V8 git repository (used only if d8 must be
-                         downloaded on demand).
+        command_line:    Full shell command to run, e.g.
+                         ``"./build/d8 --allow-natives-syntax ./poc.js"``.
         timeout:         Seconds to wait for the process before killing it.
         match_threshold: Fraction of expected backtrace frames that must match for
                          ``success`` to be True.
@@ -258,25 +236,10 @@ def VerifyTask(
     task = get_task(task_id)
     expected_backtrace: dict = task.get("backtrace") or {}
 
-    poc_fd, poc_path = tempfile.mkstemp(suffix=".js", prefix="v8gym_poc_")
-    try:
-        with os.fdopen(poc_fd, "w") as f:
-            f.write(poc_contents)
+    cmd_parts = shlex.split(command_line)
+    print(f"[v8gym] Running: {command_line}")
 
-        if "{poc}" in command_line:
-            resolved = command_line.replace("{poc}", poc_path)
-        else:
-            resolved = command_line + " " + poc_path
-
-        cmd_parts = shlex.split(resolved)
-        print(f"[v8gym] Running: {' '.join(cmd_parts)}")
-
-        crashed, captured_backtrace, exc_type, address = _run_frida(cmd_parts, timeout=timeout)
-    finally:
-        try:
-            os.unlink(poc_path)
-        except OSError:
-            pass
+    crashed, captured_backtrace, exc_type, address = _run_frida(cmd_parts, timeout=timeout)
 
     score = _backtrace_score(captured_backtrace, expected_backtrace) if crashed else 0.0
     success = crashed and score >= match_threshold
