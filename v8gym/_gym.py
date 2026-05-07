@@ -197,6 +197,7 @@ def _render_task_md(task: dict) -> str:
         "",
         "Write a JavaScript proof-of-concept (`poc.js`) that triggers a crash in `d8`",
         "matching the expected backtrace below.",
+        "You can find a pre-built binary inside ./build directory and a full V8 checkout inside ./v8 directory.",
         "",
         "Run your PoC with:",
         "```",

@@ -4,6 +4,8 @@ A dataset and environment for benchmarking AI agents and doing RL on V8 bug repr
 
 The goal is to provide a reproducible, scorable interface: given a bug description, an agent must write a JavaScript proof-of-concept that crashes `d8` with the expected backtrace.
 
+Prebuilt binary is downloaded by v8-gym to make sure that the Agent uses the right vulnerable unmodified binary.
+Backtrace comparison is used to verify that the generated PoC hit the intended bug.
 ## Dataset
 
 100+ real V8 security bugs sourced from the Chromium bug tracker. Each entry contains:
@@ -31,6 +33,50 @@ Requires a local V8 repository (for resolving commit positions) and Linux (pre-b
 ```bash
 git clone https://github.com/v8/v8.git ./v8
 ```
+
+## Make an attempt
+
+```
+# Create environment into /tmp/workspace
+v8gym-create-env --task-id 13 --workspace /tmp/workspace/ --v8-path ./v8
+
+pushd /tmp/workspace/
+
+# Give codex 1h to solve this task 
+timeout 1h codex "Read TASK.md and produce a working PoC inside poc.js. Stop only when the testcase causes a crash"
+popd
+
+# Verify if the poc reproduces the right crash (with backtrace)
+v8gym-verify-task --task-id 13 --workspace /tmp/workspace/
+```
+
+A sample solution of task id `13` is in `./solution-examples/13/poc.js`
+
+## Programmatic benchmark
+
+For automatic testing, v8-gym offers APIs instead of CLI utilities:
+
+```python
+import v8gym
+
+task_id = 1
+workspace = f"/tmp/v8gym/{task_id}"
+
+# 1. Set up the environment (downloads d8, writes TASK.md)
+v8gym.CreateEnv(task_id, workspace)
+
+# 2. Read the task description
+task_md = open(f"{workspace}/TASK.md").read()
+
+# 3. Call your agent in the workspace directory
+# ... 
+
+# 4. Score the attempt
+result = v8gym.VerifyTask(task_id=task_id, workspace_path=workspace)
+
+print(f"success={result.success}  score={result.score:.2f}")
+```
+
 
 ## API
 
@@ -90,25 +136,3 @@ Return the raw dataset row for a task as a dictionary.
 
 Return a DataFrame with all tasks (columns: `id`, `crbug_id`, `summary`, `build_type`, `exit_code`, `commit`).
 
-## Typical agent loop
-
-```python
-import v8gym
-
-task_id = 1
-workspace = f"/tmp/v8gym/{task_id}"
-
-# 1. Set up the environment (downloads d8, writes TASK.md)
-d8 = v8gym.CreateEnv(task_id, workspace)
-
-# 2. Read the task description
-task_md = open(f"{workspace}/TASK.md").read()
-
-# 3. Agent writes poc.js to workspace (replace with actual agent call)
-agent.generate(task_md, output=f"{workspace}/poc.js")
-
-# 4. Score the attempt
-result = v8gym.VerifyTask(task_id=task_id, workspace_path=workspace)
-
-print(f"success={result.success}  score={result.score:.2f}")
-```
