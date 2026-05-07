@@ -15,7 +15,8 @@ dependencies = [
 ]
 
 [project.scripts]
-v8gym-verify-task = "v8gym.cli:main"
+v8gym-create-env = "v8gym.cli:create_env"
+v8gym-verify-task = "v8gym.cli:verify_task"
 
 [tool.hatch.build.targets.wheel]
 packages = ["v8gym"]

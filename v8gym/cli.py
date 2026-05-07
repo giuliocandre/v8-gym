@@ -5,7 +5,28 @@ import json
 import sys
 
 
-def main() -> None:
+def create_env() -> None:
+    parser = argparse.ArgumentParser(
+        prog="v8gym-create-env",
+        description="Set up a v8gym reproduction environment for a task.",
+    )
+    parser.add_argument("--task-id", type=int, required=True, help="Task ID from the dataset")
+    parser.add_argument("--workspace", required=True, help="Directory to create the environment in")
+    parser.add_argument("--v8-path", default="./v8", help="Path to the local V8 git repository (default: ./v8)")
+
+    args = parser.parse_args()
+
+    from v8gym._gym import CreateEnv
+
+    d8_path = CreateEnv(
+        task_id=args.task_id,
+        workspace_path=args.workspace,
+        v8_path=args.v8_path,
+    )
+    print(f"\nd8 binary: {d8_path}")
+
+
+def verify_task() -> None:
     parser = argparse.ArgumentParser(
         prog="v8gym-verify-task",
         description="Run a PoC under Frida and score it against the expected v8gym backtrace.",
@@ -61,4 +82,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    verify_task()
