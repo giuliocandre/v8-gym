@@ -50,12 +50,12 @@ def main() -> None:
     print(f"crashed : {result.crashed}")
     print(f"score   : {result.score:.3f}")
     print(f"success : {result.success}")
-    if result.crashed:
-        print(f"exc type: {result.exception_type}")
-        print(f"address : {result.address}")
-        print()
-        print("captured backtrace:")
-        print(json.dumps(result.captured_backtrace, indent=2))
+    # if result.crashed:
+    #     print(f"exc type: {result.exception_type}")
+    #     print(f"address : {result.address}")
+    #     print()
+    #     print("captured backtrace:")
+    #     print(json.dumps(result.captured_backtrace, indent=2))
 
     sys.exit(0 if result.success else 1)
 
