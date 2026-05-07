@@ -23,4 +23,6 @@ def get_task(task_id: int) -> dict[str, Any]:
 
 
 def list_tasks() -> pd.DataFrame:
-    return _load()[["id", "crbug_id", "summary", "build_type", "exit_code", "commit"]].copy()
+    df = _load()
+    cols = ["id", "crbug_id", "summary", "build_type", "exit_code", "cli-flags", "commit"]
+    return df[[c for c in cols if c in df.columns]].copy()

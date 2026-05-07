@@ -15,6 +15,7 @@ The goal is to provide a reproducible, scorable interface: given a bug descripti
 | `commit` | Affected V8 git revision |
 | `build_type` | Build required to reproduce (`debug`, `release`, `debug-asan`, `release-asan`) |
 | `exit_code` | Expected exit code when the bug is triggered |
+| `cli-flags` | d8 flags used to reproduce the bug (e.g. `--allow-natives-syntax --harmony`) |
 | `backtrace` | Expected crashing backtrace (dict of frame index → `{name, moduleName}`) |
 
 Each bug has been verified and it has a reproducing PoC. It's not published here to avoid
@@ -51,24 +52,23 @@ d8 = v8gym.CreateEnv(task_id=1, workspace_path="/tmp/task1", v8_path="/v8")
 # /tmp/task1/TASK.md is written with the bug description
 ```
 
-### `VerifyTask(task_id, command_line, timeout=60, match_threshold=0.5) → VerifyResult`
+### `VerifyTask(task_id, workspace_path, timeout=60, match_threshold=0.5) → VerifyResult`
 
-Run a command under Frida and check whether it reproduces the expected crash.
+Verify that `workspace_path/poc.js` reproduces the expected crash. Automatically constructs the command:
 
-- Spawns `command_line` under Frida with a crash exception handler
-- Compares the captured backtrace against the expected one (exact frame name match including offsets)
-- Returns a `VerifyResult`
+```
+<workspace>/build/d8 <task cli-flags> <workspace>/poc.js
+```
 
 ```python
-result = v8gym.VerifyTask(
-    task_id=1,
-    command_line="/tmp/task1/build/d8 --allow-natives-syntax ./poc.js",
-)
+result = v8gym.VerifyTask(task_id=1, workspace_path="/tmp/task1")
 
 print(result.success)   # True if crashed and backtrace matched
 print(result.score)     # float in [0, 1]: fraction of expected frames matched
 print(result.crashed)   # True if any crash was detected
 ```
+
+For full control over the command line use `v8gym._gym._verify_task(task_id, command_line, ...)` directly.
 
 **`VerifyResult` fields:**
 
@@ -108,10 +108,7 @@ task_md = open(f"{workspace}/TASK.md").read()
 agent.generate(task_md, output=f"{workspace}/poc.js")
 
 # 4. Score the attempt
-result = v8gym.VerifyTask(
-    task_id=task_id,
-    command_line=f"{d8} --allow-natives-syntax {workspace}/poc.js",
-)
+result = v8gym.VerifyTask(task_id=task_id, workspace_path=workspace)
 
 print(f"success={result.success}  score={result.score:.2f}")
 ```

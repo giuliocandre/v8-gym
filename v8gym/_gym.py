@@ -146,6 +146,7 @@ def CreateEnv(
 
     - Checks out the vulnerable commit in v8_path.
     - Downloads and installs the matching d8 binary into workspace_path/build/.
+    - Creates a symlink workspace_path/v8 -> v8_path.
     - Writes a TASK.md describing the bug.
 
     Returns the path to the installed d8 binary.
@@ -170,6 +171,12 @@ def CreateEnv(
     d8_path = install_d8(commit, dest_dir=build_dir, variant=build_type, v8_dir=v8_path)
     print(f"[v8gym] d8 installed at {d8_path}")
 
+    v8_link = os.path.join(workspace_path, "v8")
+    if os.path.islink(v8_link):
+        os.unlink(v8_link)
+    os.symlink(os.path.abspath(v8_path), v8_link)
+    print(f"[v8gym] Symlink created: {v8_link} -> {os.path.abspath(v8_path)}")
+
     task_md = os.path.join(workspace_path, "TASK.md")
     with open(task_md, "w") as f:
         f.write(_render_task_md(task))
@@ -193,7 +200,7 @@ def _render_task_md(task: dict) -> str:
         "",
         "Run your PoC with:",
         "```",
-        f"./build/d8 [relevant cli flags] poc.js",
+        f"./build/d8 {task.get('cli-flags', '')} poc.js",
         "```",
         "",
         "## Expected backtrace",
@@ -212,27 +219,12 @@ def _render_task_md(task: dict) -> str:
     return "\n".join(lines)
 
 
-def VerifyTask(
+def _verify_task(
     task_id: int,
     command_line: str,
     timeout: int = 60,
     match_threshold: float = 0.5,
 ) -> VerifyResult:
-    """
-    Run a command under Frida and check whether it reproduces the expected crash.
-
-    Args:
-        task_id:         Task to verify against.
-        command_line:    Full shell command to run, e.g.
-                         ``"./build/d8 --allow-natives-syntax ./poc.js"``.
-        timeout:         Seconds to wait for the process before killing it.
-        match_threshold: Fraction of expected backtrace frames that must match for
-                         ``success`` to be True.
-
-    Returns:
-        A :class:`VerifyResult` with ``success``, ``score``, ``crashed``, and
-        the full captured / expected backtraces.
-    """
     task = get_task(task_id)
     expected_backtrace: dict = task.get("backtrace") or {}
 
@@ -253,3 +245,33 @@ def VerifyTask(
         exception_type=exc_type,
         address=address,
     )
+
+
+def VerifyTask(
+    task_id: int,
+    workspace_path: str,
+    timeout: int = 60,
+    match_threshold: float = 0.5,
+) -> VerifyResult:
+    """
+    Verify that workspace_path/poc.js reproduces the expected crash for task_id.
+
+    Constructs the command: <workspace>/build/d8 <task cli-flags> <workspace>/poc.js
+
+    Args:
+        task_id:        Task to verify against.
+        workspace_path: Directory containing build/d8 and poc.js (created by CreateEnv).
+        timeout:        Seconds to wait for the process before killing it.
+        match_threshold: Fraction of expected backtrace frames that must match for
+                        ``success`` to be True.
+
+    Returns:
+        A :class:`VerifyResult` with ``success``, ``score``, ``crashed``, and
+        the full captured / expected backtraces.
+    """
+    task = get_task(task_id)
+    d8 = os.path.join(workspace_path, "build", "d8")
+    poc = os.path.join(workspace_path, "poc.js")
+    flags = task.get("cli-flags") or ""
+    command_line = f"{d8} {flags} {poc}".strip()
+    return _verify_task(task_id, command_line, timeout=timeout, match_threshold=match_threshold)
