@@ -36,7 +36,7 @@ git clone https://github.com/v8/v8.git ./v8
 
 ## Make an attempt
 
-```
+```bash
 # Create environment into /tmp/workspace
 v8gym-create-env --task-id 13 --workspace /tmp/workspace/ --v8-path ./v8
 
@@ -44,10 +44,9 @@ pushd /tmp/workspace/
 
 # Give codex 1h to solve this task 
 timeout 1h codex "Read TASK.md and produce a working PoC inside poc.js. Stop only when the testcase causes a crash"
-popd
 
 # Verify if the poc reproduces the right crash (with backtrace)
-v8gym-verify-task --task-id 13 --workspace /tmp/workspace/
+v8gym-verify-task --task-id 13 --workspace ./
 ```
 
 A sample solution of task id `13` is in `./solution-examples/13/poc.js`
