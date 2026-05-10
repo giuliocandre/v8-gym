@@ -1,65 +1,92 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import subprocess
 import sys
-import threading
+import tempfile
 from dataclasses import dataclass, field
-
-import frida
 
 from v8gym._dataset import get_task
 from v8gym._ensure_version import install_d8
 
-FRIDA_SCRIPT = """
-Process.setExceptionHandler(function(details) {
-    var backtrace = [];
-    try {
-        backtrace = Thread.backtrace(details.context, Backtracer.ACCURATE)
-            .map(DebugSymbol.fromAddress);
-    } catch(e) {
-        try {
-            backtrace = Thread.backtrace(details.context, Backtracer.FUZZY)
-                .map(DebugSymbol.fromAddress);
-        } catch(e2) {}
-    }
-    send({
-        type: 'crash',
-        exception_type: details.type,
-        address: details.address,
-        backtrace: backtrace
-    });
-    return false;
-});
+_GDB_SCRIPT = """\
+import gdb, json, os, re
+
+def _read_maps(pid):
+    mappings = []
+    try:
+        with open(f"/proc/{pid}/maps") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 6:
+                    continue
+                start_s, end_s = parts[0].split("-")
+                perms, path = parts[1], parts[5]
+                mappings.append((int(start_s, 16), int(end_s, 16), perms, path))
+    except Exception:
+        pass
+    return mappings
+
+def _resolve(pc, mappings):
+    for start, end, perms, path in mappings:
+        if "x" in perms and start <= pc < end:
+            return os.path.basename(path) or "??", hex(pc - start)
+    return "??", hex(pc)
+
+class CollectCrash(gdb.Command):
+    def __init__(self):
+        super().__init__("collect-crash", gdb.COMMAND_USER)
+
+    def invoke(self, arg, from_tty):
+        inferior = gdb.selected_inferior()
+        mappings = _read_maps(inferior.pid)
+        frames = []
+        frame = gdb.newest_frame()
+        while frame is not None:
+            pc = frame.pc()
+            mod, offset = _resolve(pc, mappings)
+            frames.append({
+                "pc": hex(pc),
+                "name": frame.name() or "??",
+                "moduleName": mod,
+                "offset": offset,
+            })
+            frame = frame.older()
+        info = gdb.execute("info program", to_string=True)
+        sig_m = re.search(r"signal (\\w+)", info)
+        result = {
+            "signal": sig_m.group(1) if sig_m else "??",
+            "backtrace": {str(i): f for i, f in enumerate(frames)},
+        }
+        print("__CRASH_JSON__" + json.dumps(result), flush=True)
+
+CollectCrash()
 """
-
-def _extract_names(backtrace: dict) -> list[str]:
-    names = []
-    for key in sorted(backtrace.keys(), key=lambda k: int(k) if str(k).lstrip("-").isdigit() else 0):
-        entry = backtrace[key]
-        if not entry:
-            continue
-        name = entry.get("name") if isinstance(entry, dict) else None
-        if name:
-            names.append(name)
-    return names
-
 
 def _backtrace_score(captured: dict, expected: dict) -> float:
     """
     Return a score in [0, 1] for how well the captured backtrace matches the expected one.
-    Computes the fraction of expected named frames that appear in the captured trace.
+
+    For each expected frame, a match requires the captured frame at the same index to have
+    identical moduleName and offset.
     """
-    exp_names = _extract_names(expected)
-    cap_names = _extract_names(captured)
-    if not exp_names:
+    valid_expected = {
+        str(k): v for k, v in expected.items()
+        if isinstance(v, dict) and v.get("moduleName") and v.get("offset")
+    }
+    if not valid_expected:
         return 1.0
-    if not cap_names:
+    if not captured:
         return 0.0
-    cap_set = set(cap_names)
-    matches = sum(1 for n in exp_names if n in cap_set)
-    return matches / len(exp_names)
+    matches = sum(
+        1 for idx, exp in valid_expected.items()
+        if isinstance(captured.get(idx), dict)
+        and captured[idx].get("moduleName") == exp.get("moduleName")
+        and captured[idx].get("offset") == exp.get("offset")
+    )
+    return matches / len(valid_expected)
 
 
 @dataclass
@@ -73,67 +100,63 @@ class VerifyResult:
     address: str = ""
 
 
-def _run_frida(cmd_parts: list[str], timeout: int = 60) -> tuple[bool, dict, str, str]:
+def _parse_gdb_output(stdout: str) -> tuple[bool, dict, str, str]:
+    marker = "__CRASH_JSON__"
+    if marker not in stdout:
+        return False, {}, "", ""
+    json_line = stdout.split(marker, 1)[1].split("\n", 1)[0]
+    data = json.loads(json_line)
+    signal = data.get("signal")
+    if not signal or signal == "??":
+        return False, {}, "", ""
+    backtrace_dict = {}
+    for k, v in data.get("backtrace", {}).items():
+        if v.get("moduleName", "??") != "??":
+            backtrace_dict[str(k)] = v
+    fault_address = data.get("backtrace", {}).get("0", {}).get("pc", "")
+    return True, backtrace_dict, signal, fault_address
+
+
+def _run_gdb(cmd_parts: list[str], timeout: int = 60) -> tuple[bool, dict, str, str]:
     """
-    Spawn cmd_parts under Frida and collect crash info.
+    Spawn cmd_parts under GDB and collect crash info.
 
-    Returns (crashed, backtrace_dict, exception_type, address).
+    Returns (crashed, backtrace_dict, signal_name, fault_address).
     """
-    executable = cmd_parts[0]
-    argv = cmd_parts[1:]
+    script_fd, script_path = tempfile.mkstemp(suffix=".py")
+    try:
+        with os.fdopen(script_fd, "w") as f:
+            f.write(_GDB_SCRIPT)
 
-    crashed = False
-    backtrace_dict: dict = {}
-    exception_type = ""
-    address = ""
-    detached_event = threading.Event()
+        gdb_args = [
+            "gdb", "--batch", "--quiet",
+            "-ex", "set disable-randomization off",
+            "-x", script_path,
+            "-ex", "run",
+            "-ex", "collect-crash",
+            "-ex", "quit",
+            "--args",
+        ] + cmd_parts
 
-    def on_message(message, data):
-        nonlocal crashed, exception_type, address
-        if message.get("type") == "send":
-            payload = message.get("payload", {})
-            if payload.get("type") == "crash":
-                crashed = True
-                exception_type = payload.get("exception_type", "")
-                address = str(payload.get("address", ""))
-                for i, bt in enumerate(payload.get("backtrace", [])):
-                    if isinstance(bt, dict) and bt.get("name") and bt.get("moduleName"):
-                        backtrace_dict[str(i)] = {
-                            "name": bt["name"],
-                            "moduleName": bt["moduleName"],
-                        }
-                    else:
-                        backtrace_dict[str(i)] = bt
-        elif message.get("type") == "error":
-            print(
-                f"[Frida script error] {message.get('description', message)}",
-                file=sys.stderr,
-            )
-
-    def on_detached(reason, crash):
-        nonlocal crashed
-        if crash is not None:
-            crashed = True
-        detached_event.set()
-
-    device = frida.get_local_device()
-    pid = device.spawn([executable] + argv)
-    session = device.attach(pid)
-    session.on("detached", on_detached)
-    script = session.create_script(FRIDA_SCRIPT)
-    script.on("message", on_message)
-    script.load()
-    device.resume(pid)
-
-    detached_event.wait(timeout=timeout)
-    if not detached_event.is_set():
+        stdout = ""
         try:
-            device.kill(pid)
-        except frida.ProcessNotFoundError:
-            pass
-        detached_event.wait(timeout=5)
+            result = subprocess.run(
+                gdb_args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            stdout = result.stdout
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+        except subprocess.TimeoutExpired as e:
+            print(f"\n[Timeout after {timeout}s]", file=sys.stderr)
+            raw = e.stdout or b""
+            stdout = raw.decode() if isinstance(raw, bytes) else raw
+    finally:
+        os.unlink(script_path)
 
-    return crashed, backtrace_dict, exception_type, address
+    return _parse_gdb_output(stdout)
 
 
 def CreateEnv(
@@ -231,7 +254,7 @@ def _verify_task(
     cmd_parts = shlex.split(command_line)
     print(f"[v8gym] Running: {command_line}")
 
-    crashed, captured_backtrace, exc_type, address = _run_frida(cmd_parts, timeout=timeout)
+    crashed, captured_backtrace, exc_type, address = _run_gdb(cmd_parts, timeout=timeout)
 
     score = _backtrace_score(captured_backtrace, expected_backtrace) if crashed else 0.0
     success = crashed and score >= match_threshold

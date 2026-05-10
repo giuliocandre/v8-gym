@@ -28,6 +28,12 @@ pip install -e .
 
 Requires a local V8 repository (for resolving commit positions) and Linux (pre-built d8 binaries are Linux x64).
 
+GDB is used to instrument `d8` at runtime and capture the crashing backtrace. Install it with:
+
+```bash
+sudo apt install gdb
+```
+
 ```bash
 git clone https://github.com/v8/v8.git ./v8
 ```
