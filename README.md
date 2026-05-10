@@ -1,8 +1,14 @@
 # v8-gym
 
-A dataset and environment for benchmarking AI agents and doing RL on V8 bug reproduction tasks.
+A high-quality dataset and environment for benchmarking AI agents and doing reinforcement learning on V8 bug reproduction tasks.
 
-The goal is to provide a reproducible, scorable interface: given a bug description, an agent must write a JavaScript proof-of-concept that crashes `d8` with the expected backtrace.
+Currently 100 data points (planning to get to 3000) of reproducible bug reports. Each entry contains
+information on the bug, vulnerable revision and prebuilt `d8` binary (for x64 Linux only) that can be
+used to reproduce the issue.
+
+The goal is to provide a reproducible, scorable interface: given a bug description, an agent must write a JavaScript proof-of-concept that crashes `d8`.
+
+The dataset contains the crashing backtrace for every bug, which is used as an oracle to confirm succesful task completion.
 
 ## Dataset
 
@@ -15,7 +21,7 @@ The goal is to provide a reproducible, scorable interface: given a bug descripti
 | `commit` | Affected V8 git revision |
 | `build_type` | Build required to reproduce (`debug`, `release`, `debug-asan`, `release-asan`) |
 | `exit_code` | Expected exit code when the bug is triggered |
-| `cli-flags` | d8 flags used to reproduce the bug (e.g. `--allow-natives-syntax --harmony`) |
+| `cli-flags` | d8 flags used to reproduce the bug (e.g. `--allow-natives-syntax`) |
 | `backtrace` | Expected crashing backtrace (dict of frame index → `{name, moduleName}`) |
 
 Each bug has been verified and it has a reproducing PoC. It's not published here to avoid
