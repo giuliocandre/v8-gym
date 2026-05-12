@@ -135,6 +135,7 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
         "--tmpfs", "/tmp",
         # ── claude binary and optional node runtime ───────────────────────────
         *claude_extra,
+        "--bind", "/root/.local/", "/root/.local/",
         *node_extra,
         # ── ~/.claude read-write (Claude Code writes session/auth data here) ──
         "--bind", claude_dir, claude_dir,
