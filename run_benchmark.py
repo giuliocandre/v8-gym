@@ -126,6 +126,13 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
 
     full_cmd = [
         "bwrap",
+        # ── user namespace: remap host root (0) → uid 65534 inside sandbox ────
+        # This makes claude see itself as non-root, satisfying its own root check,
+        # while files owned by root on the host still appear owned by 65534 (writable).
+        "--unshare-user",
+        "--uid", "65534", "--gid", "65534",
+        "--uid-map", "65534 0 1",
+        "--gid-map", "65534 0 1",
         # ── system (read-only) ────────────────────────────────────────────────
         "--ro-bind", "/usr", "/usr",
         "--ro-bind", "/etc", "/etc",
