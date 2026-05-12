@@ -144,6 +144,10 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
         "--ro-bind", os.path.abspath(v8_path), os.path.abspath(v8_path),
         # ── misc ──────────────────────────────────────────────────────────────
         "--chdir", workspace,
+        "--symlink", "usr/lib", "/lib",
+        "--symlink", "usr/lib64", "/lib64",
+        "--symlink", "usr/bin", "/bin",
+        "--symlink", "usr/sbin", "/sbin",
         "--die-with-parent",
         "--",
         *inner_cmd,
