@@ -79,8 +79,8 @@ def _is_session_limit(text: str) -> bool:
 def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]:
     """
     Wrap inner_cmd with bubblewrap so the process can only see:
-      - read-only: system dirs, home dir (for ~/.claude credentials, node/npm)
-      - read-write: ~/.claude (session data written at runtime)
+      - read-only: system dirs, claude binary tree, optional node runtime
+      - read-write: ~/.claude (session/auth data written at runtime)
       - read-write: workspace
       - read-only:  v8_path
     Network is left open so Claude can reach the Anthropic API.
@@ -89,27 +89,54 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
     claude_dir = os.path.join(home, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
 
-    def _ro_if_exists(*paths: str) -> list[str]:
+    system_prefixes = ("/usr", "/etc", "/bin", "/sbin", "/lib", "/lib64", "/proc", "/dev", "/tmp")
+
+    def _ro_if_real(*paths: str) -> list[str]:
+        """Bind real (non-symlink) directories read-only."""
         args: list[str] = []
         for p in paths:
             if os.path.exists(p) and not os.path.islink(p):
                 args += ["--ro-bind", p, p]
         return args
 
+    def _outside_system(path: str) -> bool:
+        return not any(path == p or path.startswith(p + "/") for p in system_prefixes)
+
+    # Find the highest real ancestor of the claude binary that lives outside
+    # system paths — e.g. /root/.local/bin/claude → bind /root/.local/bin
+    claude_bin = inner_cmd[0]
+    claude_extra: list[str] = []
+    p = os.path.dirname(os.path.realpath(claude_bin))
+    while p and p != "/":
+        if not _outside_system(p):
+            break
+        if os.path.isdir(p) and not os.path.islink(p):
+            claude_extra = ["--ro-bind", p, p]
+            break
+        p = os.path.dirname(p)
+
+    # If claude's node runtime lives outside system paths (e.g. nvm), bind it too.
+    node_extra: list[str] = []
+    node_bin = shutil.which("node") or ""
+    if node_bin:
+        node_real = os.path.realpath(node_bin)
+        node_dir = os.path.dirname(node_real)
+        if _outside_system(node_dir):
+            node_extra = _ro_if_real(node_dir)
+
     return [
         "bwrap",
         # ── system (read-only) ────────────────────────────────────────────────
         "--ro-bind", "/usr", "/usr",
         "--ro-bind", "/etc", "/etc",
-        # /bin, /lib, /lib64, /sbin may be real dirs or symlinks to /usr/*
-        *_ro_if_exists("/bin", "/sbin", "/lib", "/lib64"),
+        *_ro_if_real("/bin", "/sbin", "/lib", "/lib64"),
         "--proc", "/proc",
         "--dev", "/dev",
         "--tmpfs", "/tmp",
-        # ── home (read-only base, gives access to claude binary, npm, nvm …) ─
-        "--ro-bind", home, home,
-        "--bind", "/root/.local/",
-        # override ~/.claude as read-write (Claude Code writes session data here)
+        # ── claude binary and optional node runtime ───────────────────────────
+        *claude_extra,
+        *node_extra,
+        # ── ~/.claude read-write (Claude Code writes session/auth data here) ──
         "--bind", claude_dir, claude_dir,
         # ── task directories ──────────────────────────────────────────────────
         "--bind", workspace, workspace,
