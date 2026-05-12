@@ -108,6 +108,7 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
         "--tmpfs", "/tmp",
         # ── home (read-only base, gives access to claude binary, npm, nvm …) ─
         "--ro-bind", home, home,
+        "--bind", "/root/.local/",
         # override ~/.claude as read-write (Claude Code writes session data here)
         "--bind", claude_dir, claude_dir,
         # ── task directories ──────────────────────────────────────────────────
