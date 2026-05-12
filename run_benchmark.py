@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -127,8 +128,9 @@ def _run_claude(workspace: str, task_id: int, v8_path: str, sandbox: bool) -> tu
 
     Returns (returncode, combined_output).
     """
+    claude_bin = shutil.which(CLAUDE_CMD) or CLAUDE_CMD
     claude_cmd = [
-        CLAUDE_CMD,
+        claude_bin,
         "--dangerously-skip-permissions",
         "--disallowedTools", "WebSearch", "WebFetch",
         "-p", TASK_PROMPT,
