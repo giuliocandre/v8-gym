@@ -124,7 +124,7 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
         if _outside_system(node_dir):
             node_extra = _ro_if_real(node_dir)
 
-    return [
+    full_cmd = [
         "bwrap",
         # ── system (read-only) ────────────────────────────────────────────────
         "--ro-bind", "/usr", "/usr",
@@ -148,6 +148,8 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
         "--",
         *inner_cmd,
     ]
+    print(f"[bwrap] command: {' '.join(full_cmd)}")
+    return full_cmd
 
 
 def _run_claude(workspace: str, task_id: int, v8_path: str, sandbox: bool) -> tuple[int, str]:
