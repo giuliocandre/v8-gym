@@ -265,6 +265,9 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool) -> Non
             return
 
         if result.success:
+            # Success! save the poc.js artifact for manual inspection
+            poc_path = os.path.join(workspace, "poc.js")
+            shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
             print(f"\n[+] SUCCESS  score={result.score:.2f}")
             mark(results_dir, "success", task_id)
         else:
