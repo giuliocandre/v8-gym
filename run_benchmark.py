@@ -237,8 +237,8 @@ def _run_codex(workspace: str, task_id: int, v8_path: str, sandbox: bool, timeou
     codex_bin = shutil.which(CODEX_CMD) or CODEX_CMD
     codex_cmd = [
         codex_bin,
+        "--dangerously-bypass-approvals-and-sandbox",
         "exec",
-        "--full-auto",
         "-m", "gpt-5.4",
         TASK_PROMPT,
     ]
