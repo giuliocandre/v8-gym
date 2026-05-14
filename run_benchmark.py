@@ -32,7 +32,7 @@ import v8gym
 DEFAULT_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 DEFAULT_V8_PATH = os.environ.get("V8_PATH", "./v8")
 CLAUDE_CMD = os.environ.get("CLAUDE_CMD", "claude")
-TASK_TIMEOUT = 5 * 3600  # safety margin for proc.wait(); real deadline is `timeout 5h`
+DEFAULT_TASK_TIMEOUT = 5 * 3600  # seconds; safety margin for proc.wait()
 
 TASK_PROMPT = (
     "Read TASK.md and produce a working JavaScript proof-of-concept in poc.js "
@@ -162,7 +162,7 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
     return full_cmd
 
 
-def _run_claude(workspace: str, task_id: int, v8_path: str, sandbox: bool) -> tuple[int, str]:
+def _run_claude(workspace: str, task_id: int, v8_path: str, sandbox: bool, timeout: int = DEFAULT_TASK_TIMEOUT) -> tuple[int, str]:
     """
     Run Claude Code inside workspace, streaming output to stdout while also
     collecting it for session-limit detection.
@@ -179,12 +179,12 @@ def _run_claude(workspace: str, task_id: int, v8_path: str, sandbox: bool) -> tu
 
     if sandbox:
         inner = _bwrap_wrap(workspace, v8_path, claude_cmd)
-        print(f"[claude] starting (task {task_id}, timeout 5h, bwrap sandbox) …")
+        print(f"[claude] starting (task {task_id}, timeout {timeout}s, bwrap sandbox) …")
     else:
         inner = claude_cmd
-        print(f"[claude] starting (task {task_id}, timeout 5h) …")
+        print(f"[claude] starting (task {task_id}, timeout {timeout}s) …")
 
-    cmd = ["timeout", "5h", *inner]
+    cmd = ["timeout", str(timeout), *inner]
 
     collected: list[str] = []
     lock = threading.Lock()
@@ -212,13 +212,13 @@ def _run_claude(workspace: str, task_id: int, v8_path: str, sandbox: bool) -> tu
     reader_thread = threading.Thread(target=_reader, args=(proc.stdout,), daemon=True)
     reader_thread.start()
 
-    # `timeout 5h` handles the deadline; wait here with a small safety margin.
+    # `timeout` handles the deadline; wait here with a small safety margin.
     try:
-        proc.wait(timeout=TASK_TIMEOUT + 60)
+        proc.wait(timeout=timeout + 60)
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-        print(f"[!] Python safety timeout fired — process should have been killed by 'timeout 5h'")
+        print(f"[!] Python safety timeout fired — process should have been killed by 'timeout {timeout}s'")
         reader_thread.join(timeout=5)
         return -1, "".join(collected)
 
@@ -228,7 +228,7 @@ def _run_claude(workspace: str, task_id: int, v8_path: str, sandbox: bool) -> tu
 
 # ── per-task logic ────────────────────────────────────────────────────────────
 
-def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool) -> None:
+def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeout: int = DEFAULT_TASK_TIMEOUT) -> None:
     print(f"\n{'='*64}")
     print(f"  Task {task_id}")
     print(f"{'='*64}\n")
@@ -246,7 +246,7 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool) -> Non
 
         # 2. run agent
         try:
-            returncode, output = _run_claude(workspace, task_id, v8_path=v8_path, sandbox=sandbox)
+            returncode, output = _run_claude(workspace, task_id, v8_path=v8_path, sandbox=sandbox, timeout=timeout)
         except FileNotFoundError:
             mark(results_dir, "fail", task_id)
             return
@@ -291,6 +291,8 @@ def main() -> None:
                         help="Comma-separated list of task IDs to run (overrides --start-id)")
     parser.add_argument("--no-sandbox", action="store_true",
                         help="Disable bubblewrap sandboxing")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TASK_TIMEOUT,
+                        help=f"Per-task timeout in seconds (default: {DEFAULT_TASK_TIMEOUT})")
     args = parser.parse_args()
 
     tasks = v8gym.list_tasks()
@@ -308,7 +310,7 @@ def main() -> None:
             print(f"[skip] task {task_id} already done")
             continue
         run_task(task_id, results_dir=args.results_dir, v8_path=args.v8_path,
-                 sandbox=not args.no_sandbox)
+                 sandbox=not args.no_sandbox, timeout=args.timeout)
 
     print("\nDone.")
 
