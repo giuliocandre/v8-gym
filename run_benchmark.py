@@ -43,6 +43,7 @@ TASK_PROMPT = (
 # Substrings that indicate Claude has hit a hard usage/billing limit and further
 # calls would also fail — the whole benchmark should stop in that case.
 SESSION_LIMIT_PHRASES = [
+    "You're out of extra usage",
     "usage limit reached",
     "you've reached your usage limit",
     "exceeded your current quota",
@@ -264,10 +265,11 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool) -> Non
             mark(results_dir, "fail", task_id)
             return
 
+        # save the poc.js artifact for manual inspection
+        poc_path = os.path.join(workspace, "poc.js")
+        shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
+
         if result.success:
-            # Success! save the poc.js artifact for manual inspection
-            poc_path = os.path.join(workspace, "poc.js")
-            shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
             print(f"\n[+] SUCCESS  score={result.score:.2f}")
             mark(results_dir, "success", task_id)
         else:
