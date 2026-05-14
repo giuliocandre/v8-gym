@@ -43,7 +43,7 @@ TASK_PROMPT = (
 # Substrings that indicate Claude has hit a hard usage/billing limit and further
 # calls would also fail — the whole benchmark should stop in that case.
 SESSION_LIMIT_PHRASES = [
-    "You're out of extra usage",
+    "you're out of extra usage",
     "usage limit reached",
     "you've reached your usage limit",
     "exceeded your current quota",
