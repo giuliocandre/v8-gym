@@ -239,6 +239,7 @@ def _run_codex(workspace: str, task_id: int, v8_path: str, sandbox: bool, timeou
         codex_bin,
         "--full-auto",
         "exec",
+        "-m", "gpt-5.4",
         TASK_PROMPT,
     ]
 
