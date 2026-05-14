@@ -259,6 +259,22 @@ def _verify_task(
     score = _backtrace_score(captured_backtrace, expected_backtrace) if crashed else 0.0
     success = crashed and score >= match_threshold
 
+    if crashed:
+        all_indices = sorted(
+            set(expected_backtrace.keys()) | set(captured_backtrace.keys()),
+            key=lambda k: int(k) if k.lstrip("-").isdigit() else 0,
+        )
+        print(f"\n{'#':<4}  {'CAPTURED (module+offset)':<40}  {'EXPECTED (module+offset)':<40}")
+        print("-" * 90)
+        for idx in all_indices:
+            cap = captured_backtrace.get(idx) or {}
+            exp = expected_backtrace.get(idx) or {}
+            cap_str = f"{cap.get('moduleName', '??')}+{cap.get('offset', '??')}" if cap else "—"
+            exp_str = f"{exp.get('moduleName', '??')}+{exp.get('offset', '??')}" if exp else "—"
+            match = "=" if (cap.get("moduleName") == exp.get("moduleName") and cap.get("offset") == exp.get("offset") and cap and exp) else " "
+            print(f"{idx:<4}  {cap_str:<40}  {exp_str:<40}  {match}")
+        print(f"\nScore: {score:.2f}\n")
+
     return VerifyResult(
         success=success,
         crashed=crashed,
