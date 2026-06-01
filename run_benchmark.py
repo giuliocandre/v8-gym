@@ -33,6 +33,7 @@ DEFAULT_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 DEFAULT_V8_PATH = os.environ.get("V8_PATH", "./v8")
 CLAUDE_CMD = os.environ.get("CLAUDE_CMD", "claude")
 CODEX_CMD = os.environ.get("CODEX_CMD", "codex")
+OPENCODE_CMD = os.environ.get("OPENCODE_CMD", "opencode")
 DEFAULT_TASK_TIMEOUT = 5 * 3600  # seconds; safety margin for proc.wait()
 
 TASK_PROMPT = (
@@ -291,6 +292,67 @@ def _run_codex(workspace: str, task_id: int, v8_path: str, sandbox: bool, timeou
     return proc.returncode, "".join(collected)
 
 
+def _run_opencode(workspace: str, task_id: int, v8_path: str, sandbox: bool, timeout: int = DEFAULT_TASK_TIMEOUT) -> tuple[int, str]:
+    """
+    Run opencode CLI inside workspace using `opencode run <message>` (non-interactive by design).
+
+    Returns (returncode, combined_output).
+    """
+    opencode_bin = shutil.which(OPENCODE_CMD) or OPENCODE_CMD
+    opencode_cmd = [
+        opencode_bin,
+        "run",
+        TASK_PROMPT,
+    ]
+
+    if sandbox:
+        inner = _bwrap_wrap(workspace, v8_path, opencode_cmd)
+        print(f"[opencode] starting (task {task_id}, timeout {timeout}s, bwrap sandbox) …")
+    else:
+        inner = opencode_cmd
+        print(f"[opencode] starting (task {task_id}, timeout {timeout}s) …")
+
+    cmd = ["timeout", str(timeout), *inner]
+
+    collected: list[str] = []
+    lock = threading.Lock()
+
+    def _reader(stream):
+        for line in stream:
+            with lock:
+                collected.append(line)
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=workspace,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError:
+        print(f"[!] '{OPENCODE_CMD}' not found — is opencode installed?", file=sys.stderr)
+        raise
+
+    reader_thread = threading.Thread(target=_reader, args=(proc.stdout,), daemon=True)
+    reader_thread.start()
+
+    try:
+        proc.wait(timeout=timeout + 60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        print(f"[!] Python safety timeout fired — process should have been killed by 'timeout {timeout}s'")
+        reader_thread.join(timeout=5)
+        return -1, "".join(collected)
+
+    reader_thread.join(timeout=10)
+    return proc.returncode, "".join(collected)
+
+
 # ── per-task logic ────────────────────────────────────────────────────────────
 
 def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeout: int = DEFAULT_TASK_TIMEOUT, agent: str = "claude") -> None:
@@ -310,7 +372,7 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeou
             return
 
         # 2. run agent
-        _run_agent = _run_codex if agent == "codex" else _run_claude
+        _run_agent = {"codex": _run_codex, "opencode": _run_opencode}.get(agent, _run_claude)
         try:
             returncode, output = _run_agent(workspace, task_id, v8_path=v8_path, sandbox=sandbox, timeout=timeout)
         except FileNotFoundError:
@@ -359,7 +421,7 @@ def main() -> None:
                         help="Disable bubblewrap sandboxing")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TASK_TIMEOUT,
                         help=f"Per-task timeout in seconds (default: {DEFAULT_TASK_TIMEOUT})")
-    parser.add_argument("--agent", choices=["claude", "codex"], default="claude",
+    parser.add_argument("--agent", choices=["claude", "codex", "opencode"], default="claude",
                         help="Agent to use for solving tasks (default: claude)")
     args = parser.parse_args()
 
