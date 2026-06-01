@@ -361,49 +361,49 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeou
     print(f"  Task {task_id}")
     print(f"{'='*64}\n")
 
-    with tempfile.TemporaryDirectory(prefix=f"v8gym-task{task_id}-") as workspace:
-        print(f"[env] workspace: {workspace}")
+    workspace = tempfile.mkdtemp(prefix=f"v8gym-task{task_id}-")
+    print(f"[env] workspace: {workspace} (kept for debugging)")
 
-        # 1. set up environment
-        try:
-            v8gym.CreateEnv(task_id, workspace, v8_path=v8_path)
-        except Exception as exc:
-            print(f"[!] CreateEnv failed: {exc}")
-            mark(results_dir, "fail", task_id)
-            return
+    # 1. set up environment
+    try:
+        v8gym.CreateEnv(task_id, workspace, v8_path=v8_path)
+    except Exception as exc:
+        print(f"[!] CreateEnv failed: {exc}")
+        mark(results_dir, "fail", task_id)
+        return
 
-        # 2. run agent
-        _run_agent = {"codex": _run_codex, "opencode": _run_opencode}.get(agent, _run_claude)
-        try:
-            returncode, output = _run_agent(workspace, task_id, v8_path=v8_path, sandbox=sandbox, timeout=timeout)
-        except FileNotFoundError:
-            mark(results_dir, "fail", task_id)
-            return
+    # 2. run agent
+    _run_agent = {"codex": _run_codex, "opencode": _run_opencode}.get(agent, _run_claude)
+    try:
+        returncode, output = _run_agent(workspace, task_id, v8_path=v8_path, sandbox=sandbox, timeout=timeout)
+    except FileNotFoundError:
+        mark(results_dir, "fail", task_id)
+        return
 
-        # 3. detect hard session limit → abort the whole benchmark
-        if _is_session_limit(output):
-            print("[!] Session/usage limit detected — stopping benchmark.", file=sys.stderr)
-            mark(results_dir, "fail", task_id)
-            sys.exit(2)
+    # 3. detect hard session limit → abort the whole benchmark
+    if _is_session_limit(output):
+        print("[!] Session/usage limit detected — stopping benchmark.", file=sys.stderr)
+        mark(results_dir, "fail", task_id)
+        sys.exit(2)
 
-        # 4. verify
-        try:
-            result = v8gym.VerifyTask(task_id=task_id, workspace_path=workspace)
-        except Exception as exc:
-            print(f"[!] VerifyTask failed: {exc}")
-            mark(results_dir, "fail", task_id)
-            return
+    # 4. verify
+    try:
+        result = v8gym.VerifyTask(task_id=task_id, workspace_path=workspace)
+    except Exception as exc:
+        print(f"[!] VerifyTask failed: {exc}")
+        mark(results_dir, "fail", task_id)
+        return
 
-        # save the poc.js artifact for manual inspection
-        poc_path = os.path.join(workspace, "poc.js")
-        shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
+    # save the poc.js artifact for manual inspection
+    poc_path = os.path.join(workspace, "poc.js")
+    shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
 
-        if result.success:
-            print(f"\n[+] SUCCESS  score={result.score:.2f}")
-            mark(results_dir, "success", task_id)
-        else:
-            print(f"\n[-] FAIL  crashed={result.crashed}  score={result.score:.2f}")
-            mark(results_dir, "fail", task_id)
+    if result.success:
+        print(f"\n[+] SUCCESS  score={result.score:.2f}")
+        mark(results_dir, "success", task_id)
+    else:
+        print(f"\n[-] FAIL  crashed={result.crashed}  score={result.score:.2f}")
+        mark(results_dir, "fail", task_id)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
