@@ -302,6 +302,7 @@ def _run_opencode(workspace: str, task_id: int, v8_path: str, sandbox: bool, tim
     opencode_cmd = [
         opencode_bin,
         "run",
+        "--dir", workspace,
         TASK_PROMPT,
     ]
 
