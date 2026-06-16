@@ -34,6 +34,7 @@ DEFAULT_V8_PATH = os.environ.get("V8_PATH", "./v8")
 CLAUDE_CMD = os.environ.get("CLAUDE_CMD", "claude")
 CODEX_CMD = os.environ.get("CODEX_CMD", "codex")
 OPENCODE_CMD = os.environ.get("OPENCODE_CMD", "opencode")
+PI_CMD = os.environ.get("PI_CMD", "pi")
 DEFAULT_TASK_TIMEOUT = 5 * 3600  # seconds; safety margin for proc.wait()
 
 TASK_PROMPT = (
@@ -82,15 +83,21 @@ def _is_session_limit(text: str) -> bool:
 def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]:
     """
     Wrap inner_cmd with bubblewrap so the process can only see:
-      - read-only: system dirs, claude binary tree, optional node runtime
-      - read-write: ~/.claude (session/auth data written at runtime)
+      - read-only: system dirs, agent binary tree, optional node runtime
+      - read-write: ~/.claude, ~/.codex, ~/.opencode, ~/.pi (session/auth data)
       - read-write: workspace
       - read-only:  v8_path
-    Network is left open so Claude can reach the Anthropic API.
+    Network is left open so agents can reach their APIs.
     """
     home = os.path.expanduser("~")
-    claude_dir = os.path.join(home, ".claude")
-    os.makedirs(claude_dir, exist_ok=True)
+    agent_dirs = [
+        os.path.join(home, ".claude"),
+        os.path.join(home, ".codex"),
+        os.path.join(home, ".opencode"),
+        os.path.join(home, ".pi"),
+    ]
+    for d in agent_dirs:
+        os.makedirs(d, exist_ok=True)
 
     system_prefixes = ("/usr", "/etc", "/bin", "/sbin", "/lib", "/lib64", "/proc", "/dev", "/tmp")
 
@@ -105,20 +112,20 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
     def _outside_system(path: str) -> bool:
         return not any(path == p or path.startswith(p + "/") for p in system_prefixes)
 
-    # Find the highest real ancestor of the claude binary that lives outside
+    # Find the highest real ancestor of the agent binary that lives outside
     # system paths — e.g. /root/.local/bin/claude → bind /root/.local/bin
-    claude_bin = inner_cmd[0]
-    claude_extra: list[str] = []
-    p = os.path.dirname(os.path.realpath(claude_bin))
+    agent_bin = inner_cmd[0]
+    agent_bin_extra: list[str] = []
+    p = os.path.dirname(os.path.realpath(agent_bin))
     while p and p != "/":
         if not _outside_system(p):
             break
         if os.path.isdir(p) and not os.path.islink(p):
-            claude_extra = ["--ro-bind", p, p]
+            agent_bin_extra = ["--ro-bind", p, p]
             break
         p = os.path.dirname(p)
 
-    # If claude's node runtime lives outside system paths (e.g. nvm), bind it too.
+    # If agent's node runtime lives outside system paths (e.g. nvm), bind it too.
     node_extra: list[str] = []
     node_bin = shutil.which("node") or ""
     if node_bin:
@@ -127,30 +134,26 @@ def _bwrap_wrap(workspace: str, v8_path: str, inner_cmd: list[str]) -> list[str]
         if _outside_system(node_dir):
             node_extra = _ro_if_real(node_dir)
 
+    agent_bind_args: list[str] = []
+    for d in agent_dirs:
+        agent_bind_args += ["--bind", d, d]
+
     full_cmd = [
         "bwrap",
-        # ── user namespace: remap host root (0) → uid 65534 inside sandbox ────
-        # This makes claude see itself as non-root, satisfying its own root check,
-        # while files owned by root on the host still appear owned by 65534 (writable).
         "--unshare-user",
         "--uid", "65534", "--gid", "65534",
-        # ── system (read-only) ────────────────────────────────────────────────
         "--ro-bind", "/usr", "/usr",
         "--ro-bind", "/etc", "/etc",
         *_ro_if_real("/bin", "/sbin", "/lib", "/lib64"),
         "--proc", "/proc",
         "--dev", "/dev",
         "--tmpfs", "/tmp",
-        # ── claude binary and optional node runtime ───────────────────────────
-        *claude_extra,
+        *agent_bin_extra,
         "--bind", "/root/.local/", "/root/.local/",
         *node_extra,
-        # ── ~/.claude read-write (Claude Code writes session/auth data here) ──
-        "--bind", claude_dir, claude_dir,
-        # ── task directories ──────────────────────────────────────────────────
+        *agent_bind_args,
         "--bind", workspace, workspace,
         "--ro-bind", os.path.abspath(v8_path), os.path.abspath(v8_path),
-        # ── misc ──────────────────────────────────────────────────────────────
         "--chdir", workspace,
         "--symlink", "usr/lib", "/lib",
         "--symlink", "usr/lib64", "/lib64",
@@ -354,6 +357,66 @@ def _run_opencode(workspace: str, task_id: int, v8_path: str, sandbox: bool, tim
     return proc.returncode, "".join(collected)
 
 
+def _run_pi(workspace: str, task_id: int, v8_path: str, sandbox: bool, timeout: int = DEFAULT_TASK_TIMEOUT) -> tuple[int, str]:
+    """
+    Run pi CLI inside workspace.
+
+    Returns (returncode, combined_output).
+    """
+    pi_bin = shutil.which(PI_CMD) or PI_CMD
+    pi_cmd = [
+        pi_bin,
+        TASK_PROMPT,
+    ]
+
+    if sandbox:
+        inner = _bwrap_wrap(workspace, v8_path, pi_cmd)
+        print(f"[pi] starting (task {task_id}, timeout {timeout}s, bwrap sandbox) …")
+    else:
+        inner = pi_cmd
+        print(f"[pi] starting (task {task_id}, timeout {timeout}s) …")
+
+    cmd = ["timeout", str(timeout), *inner]
+
+    collected: list[str] = []
+    lock = threading.Lock()
+
+    def _reader(stream):
+        for line in stream:
+            with lock:
+                collected.append(line)
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=workspace,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError:
+        print(f"[!] '{PI_CMD}' not found — is pi installed?", file=sys.stderr)
+        raise
+
+    reader_thread = threading.Thread(target=_reader, args=(proc.stdout,), daemon=True)
+    reader_thread.start()
+
+    try:
+        proc.wait(timeout=timeout + 60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        print(f"[!] Python safety timeout fired — process should have been killed by 'timeout {timeout}s'")
+        reader_thread.join(timeout=5)
+        return -1, "".join(collected)
+
+    reader_thread.join(timeout=10)
+    return proc.returncode, "".join(collected)
+
+
 # ── per-task logic ────────────────────────────────────────────────────────────
 
 def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeout: int = DEFAULT_TASK_TIMEOUT, agent: str = "claude") -> None:
@@ -373,7 +436,7 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeou
         return
 
     # 2. run agent
-    _run_agent = {"codex": _run_codex, "opencode": _run_opencode}.get(agent, _run_claude)
+    _run_agent = {"codex": _run_codex, "opencode": _run_opencode, "pi": _run_pi}.get(agent, _run_claude)
     try:
         returncode, output = _run_agent(workspace, task_id, v8_path=v8_path, sandbox=sandbox, timeout=timeout)
     except FileNotFoundError:
@@ -422,7 +485,7 @@ def main() -> None:
                         help="Disable bubblewrap sandboxing")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TASK_TIMEOUT,
                         help=f"Per-task timeout in seconds (default: {DEFAULT_TASK_TIMEOUT})")
-    parser.add_argument("--agent", choices=["claude", "codex", "opencode"], default="claude",
+    parser.add_argument("--agent", choices=["claude", "codex", "opencode", "pi"], default="claude",
                         help="Agent to use for solving tasks (default: claude)")
     args = parser.parse_args()
 
