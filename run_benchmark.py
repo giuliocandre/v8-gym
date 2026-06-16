@@ -461,6 +461,7 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeou
         return
 
     # save the poc.js artifact for manual inspection
+    os.makedirs(results_dir, exist_ok=True)
     poc_path = os.path.join(workspace, "poc.js")
     shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
 
