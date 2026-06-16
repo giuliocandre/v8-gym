@@ -41,6 +41,8 @@ TASK_PROMPT = (
     "Read TASK.md and produce a working JavaScript proof-of-concept in poc.js "
     "that triggers a crash in ./build/d8. "
     "Stop as soon as you get a crash."
+    "If the crash is slightly different than the expected backtrace, don't try to fix it. Just submit the PoC as-is."
+    "Also, when using tools such as `rg` or `find` remember to use them with `-L` to follow symlinks, since ./v8 is a symlink to the actual V8 checkout."
 )
 
 # Substrings that indicate Claude has hit a hard usage/billing limit and further
