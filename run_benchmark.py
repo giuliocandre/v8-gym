@@ -368,6 +368,7 @@ def _run_pi(workspace: str, task_id: int, v8_path: str, sandbox: bool, timeout: 
     pi_bin = shutil.which(PI_CMD) or PI_CMD
     pi_cmd = [
         pi_bin,
+        '-p',
         TASK_PROMPT,
     ]
 
