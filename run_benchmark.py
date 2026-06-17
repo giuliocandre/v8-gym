@@ -463,7 +463,10 @@ def run_task(task_id: int, results_dir: str, v8_path: str, sandbox: bool, timeou
     # save the poc.js artifact for manual inspection
     os.makedirs(results_dir, exist_ok=True)
     poc_path = os.path.join(workspace, "poc.js")
-    shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
+    try:
+        shutil.copy(poc_path, os.path.join(results_dir, f"poc-{task_id}.js"))
+    except FileNotFoundError:
+        print(f"[!] poc.js not found in workspace — agent may have failed to produce it", file=sys.stderr)
 
     if result.success:
         print(f"\n[+] SUCCESS  score={result.score:.2f}")
