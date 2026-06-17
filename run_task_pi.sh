@@ -14,21 +14,25 @@ if [[ -f "$RESULTS_DIR/success-$TASK_ID" || -f "$RESULTS_DIR/fail-$TASK_ID" ]]; 
     exit 0
 fi
 
-WORKSPACE=$(mktemp -d "v8gym-task${TASK_ID}-XXXXXX")
+WORKSPACE=$(realpath "$(mktemp -d "v8gym-task${TASK_ID}-XXXXXX")")
 echo "[env] workspace: $WORKSPACE"
 
 v8gym-create-env --task-id "$TASK_ID" --workspace "$WORKSPACE" --v8-path "$V8_PATH" --copy
 
 echo "[pi] starting (task $TASK_ID, timeout 3600s) …"
-cd "$WORKSPACE"
+
+pushd "$WORKSPACE"
 timeout 3600 pi -p "$PROMPT" || true
+popd
+
+cp "$WORKSPACE/poc.js" "$RESULTS_DIR/poc-$TASK_ID.js" 2>/dev/null || true
 
 if v8gym-verify-task --task-id "$TASK_ID" --workspace "$WORKSPACE"; then
     touch "$RESULTS_DIR/success-$TASK_ID"
     echo "[result] success-$TASK_ID"
-    cp "$WORKSPACE/poc.js" "$RESULTS_DIR/poc-$TASK_ID.js" 2>/dev/null || true
 else
     touch "$RESULTS_DIR/fail-$TASK_ID"
     echo "[result] fail-$TASK_ID"
-    cp "$WORKSPACE/poc.js" "$RESULTS_DIR/poc-$TASK_ID.js" 2>/dev/null || true
 fi
+
+rm -rf "$WORKSPACE"
