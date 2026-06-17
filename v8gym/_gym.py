@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -140,13 +141,15 @@ def CreateEnv(
     task_id: int,
     workspace_path: str,
     v8_path: str = "./v8",
+    copy: bool = False,
 ) -> str:
     """
     Set up a reproduction environment for the given task.
 
     - Checks out the vulnerable commit in v8_path.
     - Downloads and installs the matching d8 binary into workspace_path/build/.
-    - Creates a symlink workspace_path/v8 -> v8_path.
+    - Creates workspace_path/v8 as a symlink to v8_path (default) or a full
+      recursive copy of v8_path (when copy=True).
     - Writes a TASK.md describing the bug.
 
     Returns the path to the installed d8 binary.
@@ -171,11 +174,17 @@ def CreateEnv(
     d8_path = install_d8(commit, dest_dir=build_dir, variant=build_type, v8_dir=v8_path)
     print(f"[v8gym] d8 installed at {d8_path}")
 
-    v8_link = os.path.join(workspace_path, "v8")
-    if os.path.islink(v8_link):
-        os.unlink(v8_link)
-    os.symlink(os.path.abspath(v8_path), v8_link)
-    print(f"[v8gym] Symlink created: {v8_link} -> {os.path.abspath(v8_path)}")
+    v8_dest = os.path.join(workspace_path, "v8")
+    if copy:
+        if os.path.exists(v8_dest):
+            shutil.rmtree(v8_dest)
+        shutil.copytree(os.path.abspath(v8_path), v8_dest, symlinks=True)
+        print(f"[v8gym] Copied {v8_path} -> {v8_dest}")
+    else:
+        if os.path.islink(v8_dest):
+            os.unlink(v8_dest)
+        os.symlink(os.path.abspath(v8_path), v8_dest)
+        print(f"[v8gym] Symlink created: {v8_dest} -> {os.path.abspath(v8_path)}")
 
     task_md = os.path.join(workspace_path, "TASK.md")
     with open(task_md, "w") as f:

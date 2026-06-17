@@ -13,6 +13,7 @@ def create_env() -> None:
     parser.add_argument("--task-id", type=int, required=True, help="Task ID from the dataset")
     parser.add_argument("--workspace", required=True, help="Directory to create the environment in")
     parser.add_argument("--v8-path", default="./v8", help="Path to the local V8 git repository (default: ./v8)")
+    parser.add_argument("--copy", action="store_true", help="Copy v8_path into the workspace instead of symlinking")
 
     args = parser.parse_args()
 
@@ -22,6 +23,7 @@ def create_env() -> None:
         task_id=args.task_id,
         workspace_path=args.workspace,
         v8_path=args.v8_path,
+        copy=args.copy,
     )
     print(f"\nd8 binary: {d8_path}")
 
