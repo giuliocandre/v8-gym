@@ -20,6 +20,7 @@ echo "[env] workspace: $WORKSPACE"
 v8gym-create-env --task-id "$TASK_ID" --workspace "$WORKSPACE" --v8-path "$V8_PATH" --copy
 
 echo "[pi] starting (task $TASK_ID, timeout 3600s) …"
+cd "$WORKSPACE"
 timeout 3600 pi -p "$PROMPT" || true
 
 if v8gym-verify-task --task-id "$TASK_ID" --workspace "$WORKSPACE"; then

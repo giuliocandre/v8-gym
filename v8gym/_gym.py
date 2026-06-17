@@ -158,33 +158,35 @@ def CreateEnv(
     commit: str = task["commit"]
     build_type: str = task["build_type"]
 
-    subprocess.run(
-        ["git", "config", "--global", "--add", "safe.directory", os.path.abspath(v8_path)],
-        check=False,
-    )
-    subprocess.run(
-        ["git", "checkout", commit],
-        cwd=v8_path,
-        check=True,
-    )
-    print(f"[v8gym] Checked out commit {commit} in {v8_path}")
-
-    build_dir = os.path.join(workspace_path, "build")
-    os.makedirs(build_dir, exist_ok=True)
-    d8_path = install_d8(commit, dest_dir=build_dir, variant=build_type, v8_dir=v8_path)
-    print(f"[v8gym] d8 installed at {d8_path}")
-
     v8_dest = os.path.join(workspace_path, "v8")
     if copy:
         if os.path.exists(v8_dest):
             shutil.rmtree(v8_dest)
         shutil.copytree(os.path.abspath(v8_path), v8_dest, symlinks=True)
         print(f"[v8gym] Copied {v8_path} -> {v8_dest}")
+        checkout_dir = v8_dest
     else:
         if os.path.islink(v8_dest):
             os.unlink(v8_dest)
         os.symlink(os.path.abspath(v8_path), v8_dest)
         print(f"[v8gym] Symlink created: {v8_dest} -> {os.path.abspath(v8_path)}")
+        checkout_dir = v8_path
+
+    subprocess.run(
+        ["git", "config", "--global", "--add", "safe.directory", os.path.abspath(checkout_dir)],
+        check=False,
+    )
+    subprocess.run(
+        ["git", "checkout", commit],
+        cwd=checkout_dir,
+        check=True,
+    )
+    print(f"[v8gym] Checked out commit {commit} in {checkout_dir}")
+
+    build_dir = os.path.join(workspace_path, "build")
+    os.makedirs(build_dir, exist_ok=True)
+    d8_path = install_d8(commit, dest_dir=build_dir, variant=build_type, v8_dir=checkout_dir)
+    print(f"[v8gym] d8 installed at {d8_path}")
 
     task_md = os.path.join(workspace_path, "TASK.md")
     with open(task_md, "w") as f:
